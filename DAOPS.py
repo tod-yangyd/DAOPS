@@ -1,4 +1,4 @@
-import datetime
+﻿import datetime
 import os
 import re
 import shutil
@@ -8,12 +8,13 @@ import sys
 import configparser
 import logging
 
+
 # import pyzabbix
 
 from pyzabbix import ZabbixMetric, ZabbixSender
 
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 root_path = os.path.split(os.path.realpath(__file__))[0]
 # os.chdir(root_path)
 DAOPS_config = os.path.exists(
@@ -25,49 +26,48 @@ hostname = socket.gethostname()
 IP = socket.gethostbyname(hostname)  # 获取运行环境本地的IP
 
 
-def zabbix_report(msg,key='LOG_MOVE',serverIP='192.168.1.2'):
-    packet = [ZabbixMetric(IP, key, msg)]
-    zabbixserver = ZabbixSender(serverIP, 10051)
-    zabbixserver.send(packet)
+def zabbix_report(msg, key='DAOPS', serverIP='192.168.1.2'):
+    try:
+        packet = [ZabbixMetric(IP, key, msg)]
+        zabbixserver = ZabbixSender(serverIP, 10051)
+        zabbixserver.send(packet)
+    except:
+        print(123)
 
 
 class DA_OPS:
-    def __init__(self, debug=False, zabbixsender=True,serverIP='192.168.1.2'):        
+
+    def __init__(self):
         try:
             config = configparser.ConfigParser()
             config.read(DAOPS_config)
-            debug=config.get('Debug','debug')
-            zabbixsender=config.get('Zabbix','sendmessage')
-            serverIP=config.get('Zabbix','zabbixserverIP')
+            self.debug = config.getboolean('Debug', 'debug')
+            self.zabbixsender = config.getboolean('Zabbix', 'sendmessage')
+            self.serverIP = config.get('Zabbix', 'zabbixserverIP')
+            self.PATS = config.get('LOG_MOVE', 'PATS').split(';')
+            self.FIX = config.get('LOG_MOVE', 'FIX').split(';')
+
+            self.sqlserver_IP = config.get('Sqldata_csv', 'sql_server')
+            self.sqlserver_account = config.get('Sqldata_csv', 'account')
+            self.sqlserver_password = config.get('Sqldata_csv', 'password')
+            self.file_path=config.get('Sqldata_csv','file_path')
+            self.stockshare = config.get(
+                'Sqldata_csv', 'stockshare').split(';')
+            self.stocktrade = config.get(
+                'Sqldata_csv', 'stocktrade').split(';')
+            self.stocksettle = config.get(
+                'Sqldata_csv', 'stocksettle').split(';')
+            self.date_range=config.get('Sqldata_csv','date_range')
         except:
             print('config reloaded failed')
             sys.exit(0)
-        if debug:
+        if self.debug:
             logging.basicConfig(
                 filename='DAOPS.log', format='%(asctime)s %(message)s', level=logging.DEBUG)
         else:
             logging.basicConfig(filename='DAOPS.log',
                                 format='%(asctime)s %(message)s')
-        
-        """
-        if os.path.exists(DAOPS_config):
-            try:
-                config = configparser.ConfigParser()
-                config.read(DAOPS_config)
-                self.PATS = config.get(profile, "PATS").split(';')
-                self.FIX = config.get(profile, "FIX").split(';')
-                #self.TT = config.get(profile, "TT").split(';')
-                logging.debug('config reloaded success')
-            except:
-                logging.error('config reloaded failed')
-                print('config reloaded failed')
-                sys.exit(0)
 
-        else:
-            logging.error('config path not exist')
-            if zabbix_message:
-                zabbix_report('Failed: '+IP+' config path not exist')
-        """
 
     def LOG_MOVE(self):
         """
@@ -75,38 +75,42 @@ class DA_OPS:
         判断是否有需要执行任务的路径
         全部执行完成后判断是否有执行失败的路径，有则触发发送zabbix报警
         """
-        PATS=config.get('LOG_MOVE','PATS')
-        FIX=config.get('LOG_MOVE','FIX')
-
-        if PATS:
-            for path in PATS:
+        print(self.PATS)
+        print(self.FIX)
+        if self.PATS:
+            for path in self.PATS:
                 if os.path.exists(path):
                     try:
                         self._LOG_PATS(path)
-                        logging.debug('success: '+path)
-                    except:                        
-                        msg='Failed: '+path+"  Move wrong"
+                    except:
+                        msg = 'Failed: '+path+"  Move wrong"
                         print(msg)
-                        zabbix_report(msg,'LOG_MOVE',self.serverIP)
+                        zabbix_report(msg, 'LOG_MOVE', self.serverIP)
                 else:
-                    print('Failed: '+path+"  path exist wrong")
-                    msg='Failed: '+path+"  path exist wrong"
-                    zabbix_report(msg,'LOG_MOVE',self.serverIP)
-        if FIX:
-            for path in FIX:
+                    logging.error('Failed: '+path+"  PATS path exist wrong")
+                    msg = 'Failed: '+path+"  path exist wrong"
+                    zabbix_report(msg, 'LOG_MOVE', self.serverIP)
+        else:
+            logging.debug('message: no PATS path exist')
+        if self.FIX:
+            for path in self.FIX:
                 if os.path.exists(path):
                     try:
                         self._FIX_LOG(path)
                         logging.debug('success: '+path)
                     except:
-                        msg='Failed: '+path+"  Move wrong"
+                        msg = 'Failed: '+path+"  Move wrong"
                         print(msg)
-                        zabbix_report(msg,'LOG_MOVE',self.serverIP)
-                    
-                else:                   
-                    msg='Failed'+path+' path exist wrong'
+                        zabbix_report(msg, 'LOG_MOVE', self.serverIP)
+
+                else:
+                    msg = 'Failed'+path+' fix path exist wrong'
                     print(msg)
-                    zabbix_report(msg,'LOG_MOVE',self.serverIP)
+                    zabbix_report(msg, 'LOG_MOVE', self.serverIP)
+        else:
+            logging.debug('message: no FIX path exist')
+            print(self.FIX)
+        logging.debug('Success: LOG_MOVE finished')
 
     def _LOG_PATS(self, pats_path):
         """
@@ -134,7 +138,7 @@ class DA_OPS:
             # print(date)
             os.rename(pats_path+'\\report', pats_path+"\\"+date)
             shutil.move(pats_path+"\\"+date, pats_path+'\\log')
-            logging.debug(pats_path+'FIX LOG MOVE success')
+            logging.debug('Success: '+pats_path+' PATS LOG MOVE ')
         except:
             print('Failed: '+pats_path+"  Move wrong")
             logging.error('Failed: '+pats_path+"  Move wrong")
@@ -152,25 +156,74 @@ class DA_OPS:
             filelist = os.listdir(fix_path+'\\fixlog')
             if date in filelist:
                 shutil.rmtree(date)
-                os.mkdir(date) 
+                os.mkdir(date)
             else:
-                os.mkdir(date)                    
+                os.mkdir(date)
             for i in os.listdir(os.curdir):
                 if parttern_log.match(i):
                     shutil.move(i, date)
             logging.debug("Success:" + fix_path+' fix log move')
         except:
-            msg='Failed: '+fix_path+' fixLog wrong'
+            msg = 'Failed: '+fix_path+' fixLog wrong'
             print(msg)
             logging.error(msg)
         try:
             shutil.rmtree(fix_path+'\\store')
             logging.debug("Success:" + fix_path+' store log move')
         except:
-            msg='Failed: '+fix_path+' storelog wrong'
+            msg = 'Failed: '+fix_path+' storelog wrong'
             logging.error(msg)
             print(msg)
+
+    def sqldata_csv(self):
+        import csv
+        import pyodbc
+        #import pymssql
+        import pandas
+        try:
+            os.mkdir(self.file_path+'\\'+date)
+        except:
+            logging.error('Failed: sqldata file exit')
+
+        targetpath=self.file_path+'\\'+date
+        sevenday=datetime.date.today()-datetime.timedelta(days=int(self.date_range)) 
+        sevendate=sevenday.strftime('%Y%m%d')
+        settledate=" where Fdate >='%s' and fdate<'%s'" % (sevendate,date)
+        try:
+            #conn = pymssql.connect(host=self.sqlserver_IP,user=self.sqlserver_account,password=self.sqlserver_password,database='stockshare',charset='utf8')
+            conn = pyodbc.connect('DRIVER={SQL Server};SERVER=%s;DATABASE=stockshare;UID=%s;PWD=%s' % (
+                self.sqlserver_IP, self.sqlserver_account, self.sqlserver_password))
+            chunksize = 10 ** 5  # tweak this
+            #cur = conn.cursor()
+            if self.stockshare is not None:
+                for table in self.stockshare:
+                    if table:
+                        sql = 'select * from StockShare.dbo.'+table
+                        chunks = pandas.read_sql(sql, conn)
+                        dataframe = pandas.DataFrame(chunks)
+                        dataframe.to_csv(targetpath+'\\'+'Stockshare_'+table+'.csv', sep=',', index=False)
             
+            if self.stocktrade is not None:
+                for table in self.stocktrade:
+                    if table:
+                        sql = 'select * from Stocktrade.dbo.'+table
+                        chunks = pandas.read_sql(sql, conn)
+                        dataframe = pandas.DataFrame(chunks)
+                        dataframe.to_csv(targetpath+'\\'+'Stocktrade_'+table+'.csv', sep=',', index=False)
+
+            if self.stocksettle is not None:
+                for table in self.stocksettle:
+                    if table:
+                        sql = 'select * from stocksettle.dbo.'+table+settledate
+                        chunks = pandas.read_sql(sql, conn)
+                        dataframe = pandas.DataFrame(chunks)
+                        dataframe.to_csv(targetpath+'\\'+'stocksettle_'+table+'.csv', sep=',', index=False)
+            conn.close()
+        except Exception as e:
+            logging.error(e)
+           # msg='Failed : export data'
+           # logging.error(msg)
+
 
 if __name__ == '__main__':
     # print("DAOPS:[%s]" % __version__)
@@ -186,14 +239,20 @@ if __name__ == '__main__':
     parser_log .add_argument('-LF', '--LOG_FIX', nargs=1, metavar=('fix_path'), dest='LOG_FIX',
                              help='LOG_FIX方法，可以处理指定路径的PATS格式文件 eg:"--LOG_PATS D:\\test\\FIX"')
 
+    parser_sql = parser.add_argument_group('sqldata')
+    parser_sql.add_argument(
+        '-SD', '--SQLDATA', action="store_true", help='根据配置文件内的表生成csv文件')
 
     if len(sys.argv) == 1:
+        DAOPS = DA_OPS()
+        DAOPS.sqldata_csv()
         print(parser.print_help())
         sys.exit(0)
     else:
         args, unknown_args = parser.parse_known_args()
         if os.path.exists(DAOPS_config):
             if args.LOG_MOVE:
+                """
                 try:
                     config = configparser.ConfigParser()
                     config.read(DAOPS_config)
@@ -203,7 +262,8 @@ if __name__ == '__main__':
                 except:
                     print('system init failed')
                     sys.exit(0)
-                DAOPS = DA_OPS(debug=debug, zabbixsender=zabbix_message,serverIP=serverIP)
+                """
+                DAOPS = DA_OPS()
                 DAOPS.LOG_MOVE()
             if args.LOG_PATS:
                 DAOPS = DA_OPS()
@@ -216,6 +276,10 @@ if __name__ == '__main__':
                 print('args wrong')
                 print(parser.print_help())
                 sys.exit(0)
+
+            if args.SQLDATA:
+                DAOPS = DA_OPS()
+                DAOPS.sqldata_csv()
         else:
             msg = 'Falied: DAOPS_config load wrong'
             zabbix_report(msg)
